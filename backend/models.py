@@ -162,22 +162,6 @@ class Issue(Base):
     location = Column(String, nullable=True)
     action_plan = Column(JSONEncodedDict, nullable=True)
     integrity_hash = Column(String, nullable=True)  # Blockchain integrity seal
-    previous_integrity_hash = Column(String, nullable=True)  # Previous integrity hash
-
-    # Relationships
-    votes = relationship("IssueVote", back_populates="issue")
-
-class IssueVote(Base):
-    __tablename__ = "issue_votes"
-
-    id = Column(Integer, primary_key=True, index=True)
-    issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False, index=True)
-    identifier = Column(String, nullable=False, index=True) # IP or user ID hash
-    vote_type = Column(String, default="upvote")
-    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
-
-    # Relationship
-    issue = relationship("Issue", back_populates="votes")
 
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
