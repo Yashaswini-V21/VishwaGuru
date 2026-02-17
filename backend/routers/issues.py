@@ -12,7 +12,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from backend.database import get_db
-from backend.models import Issue, PushSubscription
+from backend.models import Issue, PushSubscription, IssueVote
 from backend.schemas import (
     IssueCreateWithDeduplicationResponse, IssueCategory, NearbyIssueResponse,
     DeduplicationCheckResponse, IssueSummaryResponse, VoteResponse,
@@ -175,8 +175,16 @@ async def create_issue(
             )
             prev_hash = prev_issue[0] if prev_issue and prev_issue[0] else ""
 
-# Simple but effective SHA-256 chaining
-            hash_content = f"{description}|{category}|{prev_hash}"
+            # Generate reference_id explicitly to include in hash
+            reference_id = str(uuid.uuid4())
+
+            # Enhanced SHA-256 chaining with more fields for robustness
+            # Format: reference_id|description|category|latitude|longitude|user_email|prev_hash
+            lat_str = str(latitude) if latitude is not None else ""
+            lon_str = str(longitude) if longitude is not None else ""
+            email_str = user_email if user_email else ""
+
+            hash_content = f"{reference_id}|{description}|{category}|{lat_str}|{lon_str}|{email_str}|{prev_hash}"
             integrity_hash = hashlib.sha256(hash_content.encode()).hexdigest()
 
             # RAG Retrieval (New)
@@ -186,7 +194,7 @@ async def create_issue(
                 initial_action_plan = {"relevant_government_rule": relevant_rule}
 
             new_issue = Issue(
-                reference_id=str(uuid.uuid4()),
+                reference_id=reference_id,
                 description=description,
                 category=category,
                 image_path=image_path,
@@ -196,7 +204,8 @@ async def create_issue(
                 longitude=longitude,
                 location=location,
                 action_plan=initial_action_plan,
-                integrity_hash=integrity_hash
+                integrity_hash=integrity_hash,
+                previous_integrity_hash=prev_hash
             )
 
             # Offload blocking DB operations to threadpool
@@ -255,11 +264,37 @@ async def create_issue(
         )
 
 @router.post("/api/issues/{issue_id}/vote", response_model=VoteResponse)
-async def upvote_issue(issue_id: int, db: Session = Depends(get_db)):
+async def upvote_issue(issue_id: int, request: Request, db: Session = Depends(get_db)):
     """
     Upvote an issue.
     Optimized: Performs atomic update without loading full model instance.
+    Includes vote deduplication using client IP hash.
     """
+    # Get client IP/Identifier
+    client_ip = request.client.host if request.client else "unknown"
+    # Anonymize/Hash IP for privacy
+    identifier = hashlib.sha256(client_ip.encode()).hexdigest()
+
+    # Check for existing vote
+    # Use scalar query for speed
+    existing_vote_id = await run_in_threadpool(
+        lambda: db.query(IssueVote.id).filter(
+            IssueVote.issue_id == issue_id,
+            IssueVote.identifier == identifier
+        ).scalar()
+    )
+
+    if existing_vote_id:
+        # User already voted, return current count
+        current_upvotes = await run_in_threadpool(
+            lambda: db.query(Issue.upvotes).filter(Issue.id == issue_id).scalar()
+        )
+        return VoteResponse(
+            id=issue_id,
+            upvotes=current_upvotes or 0,
+            message="You have already upvoted this issue"
+        )
+
     # Use update() for atomic increment and to avoid full model overhead
     updated_count = await run_in_threadpool(
         lambda: db.query(Issue).filter(Issue.id == issue_id).update({
@@ -270,7 +305,9 @@ async def upvote_issue(issue_id: int, db: Session = Depends(get_db)):
     if not updated_count:
         raise HTTPException(status_code=404, detail="Issue not found")
 
-    await run_in_threadpool(db.commit)
+    # Record vote
+    new_vote = IssueVote(issue_id=issue_id, identifier=identifier, vote_type="upvote")
+    await run_in_threadpool(lambda: (db.add(new_vote), db.commit()))
 
     # Fetch only the updated upvote count using column projection
     new_upvotes = await run_in_threadpool(
@@ -620,24 +657,40 @@ async def verify_blockchain_integrity(issue_id: int, db: Session = Depends(get_d
     # Fetch current issue data
     current_issue = await run_in_threadpool(
         lambda: db.query(
-            Issue.id, Issue.description, Issue.category, Issue.integrity_hash
+            Issue.reference_id,
+            Issue.description,
+            Issue.category,
+            Issue.latitude,
+            Issue.longitude,
+            Issue.user_email,
+            Issue.integrity_hash,
+            Issue.previous_integrity_hash
         ).filter(Issue.id == issue_id).first()
     )
 
     if not current_issue:
         raise HTTPException(status_code=404, detail="Issue not found")
 
-    # Fetch previous issue's integrity hash to verify the chain
-    prev_issue_hash = await run_in_threadpool(
-        lambda: db.query(Issue.integrity_hash).filter(Issue.id < issue_id).order_by(Issue.id.desc()).first()
-    )
+    # Determine verification method based on record version
+    if current_issue.previous_integrity_hash is not None:
+        # New robust verification
+        prev_hash = current_issue.previous_integrity_hash or ""
 
-    prev_hash = prev_issue_hash[0] if prev_issue_hash and prev_issue_hash[0] else ""
+        lat_str = str(current_issue.latitude) if current_issue.latitude is not None else ""
+        lon_str = str(current_issue.longitude) if current_issue.longitude is not None else ""
+        email_str = current_issue.user_email if current_issue.user_email else ""
 
-    # Recompute hash based on current data and previous hash
-    # Chaining logic: hash(description|category|prev_hash)
-    hash_content = f"{current_issue.description}|{current_issue.category}|{prev_hash}"
-    computed_hash = hashlib.sha256(hash_content.encode()).hexdigest()
+        hash_content = f"{current_issue.reference_id}|{current_issue.description}|{current_issue.category}|{lat_str}|{lon_str}|{email_str}|{prev_hash}"
+        computed_hash = hashlib.sha256(hash_content.encode()).hexdigest()
+    else:
+        # Legacy verification fallback (for older records)
+        prev_issue_hash = await run_in_threadpool(
+            lambda: db.query(Issue.integrity_hash).filter(Issue.id < issue_id).order_by(Issue.id.desc()).first()
+        )
+        prev_hash = prev_issue_hash[0] if prev_issue_hash and prev_issue_hash[0] else ""
+
+        hash_content = f"{current_issue.description}|{current_issue.category}|{prev_hash}"
+        computed_hash = hashlib.sha256(hash_content.encode()).hexdigest()
 
     is_valid = (computed_hash == current_issue.integrity_hash)
 
