@@ -7,7 +7,6 @@ and enable easier testing, mocking, and service provider switching.
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Protocol
 import asyncio
-import threading
 
 
 class ActionPlanService(Protocol):
@@ -91,19 +90,12 @@ class AIServiceContainer:
 
 # Global service container instance
 _ai_services: Optional[AIServiceContainer] = None
-_ai_services_lock = threading.Lock()
 
 
 def get_ai_services() -> AIServiceContainer:
     """Get the global AI services container."""
-    global _ai_services
     if _ai_services is None:
-        with _ai_services_lock:
-            if _ai_services is None:
-                # Lazy initialization
-                from backend.ai_factory import create_all_ai_services
-                services = create_all_ai_services()
-                initialize_ai_services(*services)
+        raise RuntimeError("AI services not initialized. Call initialize_ai_services() first.")
     return _ai_services
 
 

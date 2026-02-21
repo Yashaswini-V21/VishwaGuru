@@ -21,6 +21,8 @@ import logging
 import asyncio
 
 from backend.database import Base, engine
+from backend.ai_factory import create_all_ai_services
+from backend.ai_interfaces import initialize_ai_services
 from backend.bot import start_bot_thread, stop_bot_thread
 from backend.init_db import migrate_db
 from backend.maharashtra_locator import load_maharashtra_pincode_data, load_maharashtra_mla_data
@@ -39,10 +41,16 @@ logger = logging.getLogger(__name__)
 async def background_initialization(app: FastAPI):
     """Perform non-critical startup tasks in background to speed up app availability"""
     try:
-        # 1. AI Services initialization (Lazy Loaded now)
-        # We don't initialize them here anymore to save startup time.
-        # They will be initialized on first use via get_ai_services().
-        logger.info("AI services configured for lazy loading.")
+        # 1. AI Services initialization
+        # These can take a few seconds due to imports and configuration
+        action_plan_service, chat_service, mla_summary_service = await run_in_threadpool(create_all_ai_services)
+
+        initialize_ai_services(
+            action_plan_service=action_plan_service,
+            chat_service=chat_service,
+            mla_summary_service=mla_summary_service
+        )
+        logger.info("AI services initialized successfully.")
 
         # 2. Static data pre-loading (loads large JSONs into memory)
         await run_in_threadpool(load_maharashtra_pincode_data)
