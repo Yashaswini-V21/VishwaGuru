@@ -74,15 +74,18 @@ async def lifespan(app: FastAPI):
 
     # Startup: Database setup (Blocking but necessary for app consistency)
     try:
+        logger.info("Starting database initialization...")
         await run_in_threadpool(Base.metadata.create_all, bind=engine)
+        logger.info("Base.metadata.create_all completed.")
         await run_in_threadpool(migrate_db)
-        logger.info("Database initialized successfully.")
+        logger.info("migrate_db completed. Database initialized successfully.")
     except Exception as e:
         logger.error(f"Database initialization failed: {e}", exc_info=True)
         # We continue to allow health checks even if DB has issues (for debugging)
 
     # Startup: Initialize Grievance Service (needed for escalation engine)
     try:
+        logger.info("Initializing grievance service...")
         grievance_service = GrievanceService()
         app.state.grievance_service = grievance_service
         logger.info("Grievance service initialized successfully.")
