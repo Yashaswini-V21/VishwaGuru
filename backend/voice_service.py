@@ -7,6 +7,7 @@ Issue #291: Local Language and Voice-Based Grievance Submission
 import logging
 import os
 import tempfile
+import asyncio
 from typing import Dict, Optional, Tuple
 from pathlib import Path
 import speech_recognition as sr
@@ -36,13 +37,9 @@ class VoiceService:
     """Service for handling voice transcription and language translation"""
     
     def __init__(self):
-        self.recognizer = sr.Recognizer()
-        # Don't create translator singleton - create per request for thread-safety
-        
-        # Adjust for ambient noise
-        self.recognizer.energy_threshold = 4000
-        self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.8
+        # Don't create recognizer or translator as instance variables
+        # Create fresh instances per call for thread-safety
+        pass
         
     def transcribe_audio(
         self, 
@@ -64,6 +61,12 @@ class VoiceService:
                 - error: Error message if transcription failed
         """
         try:
+            # Create fresh recognizer instance for thread-safety
+            recognizer = sr.Recognizer()
+            recognizer.energy_threshold = 4000
+            recognizer.dynamic_energy_threshold = True
+            recognizer.pause_threshold = 0.8
+            
             # Create temporary file for audio processing
             # Detect file format and convert to WAV if needed
             with tempfile.NamedTemporaryFile(delete=False, suffix='.tmp') as temp_input:
@@ -86,10 +89,10 @@ class VoiceService:
                 # Load audio file
                 with sr.AudioFile(temp_wav_path) as source:
                     # Adjust for ambient noise
-                    self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
                     
                     # Record audio
-                    audio_data = self.recognizer.record(source)
+                    audio_data = recognizer.record(source)
                 
                 # Determine language for recognition
                 # If auto mode, try common Indian languages in order of likely usage
@@ -101,7 +104,7 @@ class VoiceService:
                     
                     for lang_code in candidate_languages:
                         try:
-                            result = self.recognizer.recognize_google(
+                            result = recognizer.recognize_google(
                                 audio_data,
                                 language=lang_code,
                                 show_all=True
@@ -122,7 +125,7 @@ class VoiceService:
                     
                     if not best_result:
                         # Fall back to English if no result
-                        transcribed_text = self.recognizer.recognize_google(audio_data, language='en')
+                        transcribed_text = recognizer.recognize_google(audio_data, language='en')
                         detected_language = 'en'
                         confidence = 0.6
                     else:
@@ -132,7 +135,7 @@ class VoiceService:
                 else:
                     # Use specified language
                     recognition_language = language
-                    transcribed_text = self.recognizer.recognize_google(
+                    transcribed_text = recognizer.recognize_google(
                         audio_data,
                         language=recognition_language,
                         show_all=False
@@ -220,12 +223,18 @@ class VoiceService:
                 }
             
             # Perform translation (create new Translator instance for thread-safety)
+            # googletrans 4.0.2 is async-only, so use asyncio.run() for synchronous context
             translator = Translator()
-            translation = translator.translate(
-                text,
-                src=source_language,
-                dest=target_language
-            )
+            
+            # Wrap async translate call in asyncio.run for synchronous execution
+            async def _do_translation():
+                return await translator.translate(
+                    text,
+                    src=source_language,
+                    dest=target_language
+                )
+            
+            translation = asyncio.run(_do_translation())
             
             logger.info(f"Successfully translated text: {translation.src} -> {translation.dest}")
             

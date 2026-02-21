@@ -170,12 +170,13 @@ API endpoints for:
 ```txt
 SpeechRecognition     # Speech-to-text
 pydub                 # Audio format conversion (MP3, FLAC support)
-googletrans==4.0.2    # Translation (stable release, Jan 2025)
+googletrans==4.0.2    # Translation (stable release, Jan 2025, async API)
 langdetect            # Language detection
 indic-nlp-library     # Indian language support
 ```
 
 **Note**: Upgraded from googletrans 4.0.0rc1 to stable 4.0.2 for improved reliability.
+**Implementation**: googletrans 4.0.2 uses async API, wrapped with `asyncio.run()` for synchronous execution in threadpool context.
 
 ## Usage Examples
 
@@ -333,9 +334,12 @@ Create test recordings with:
 ### Critical Fixes Applied
 1. **Path Traversal Prevention**: User-provided filenames replaced with UUID-based names
 2. **File Size Validation**: 10 MB limit enforced to prevent resource exhaustion
-3. **Thread-Safety**: Translator instances created per-request instead of singleton
+3. **Thread-Safety**: 
+   - Translator instances created per-request instead of singleton
+   - Recognizer instances created per-call to avoid race conditions on mutable state
 4. **Async Processing**: Blocking I/O wrapped in threadpool to prevent event loop blocking
-5. **Relative Path Storage**: Portable paths for deployment flexibility
+5. **Async API Handling**: googletrans 4.0.2 async calls properly wrapped with `asyncio.run()`
+6. **Relative Path Storage**: Portable paths for deployment flexibility
 
 ### Dependency Upgrades
 - googletrans upgraded from 4.0.0rc1 (2020) to 4.0.2 (2025) for stability
@@ -343,6 +347,11 @@ Create test recordings with:
 ### Auto-Detection Enhancement
 - Previous: Defaulted to English when language='auto'
 - **New**: Tests multiple candidate languages (Hindi, Marathi, English, Tamil, Telugu, Bengali) and picks the best match based on confidence scores
+
+### Code Quality Improvements
+- Removed dead variable assignments (Ruff F841)
+- Fixed all thread-safety issues in concurrent execution
+- Proper async/await handling for googletrans 4.0.2
 
 ## License
 This feature is part of VishwaGuru and follows the same license.

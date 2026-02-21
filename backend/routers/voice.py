@@ -223,13 +223,11 @@ async def submit_voice_issue(
             final_description = manual_description
             manual_correction_applied = True
             original_text = voice_result.get('original_text', '')
-            translated_text = manual_description
         else:
             # Use transcribed and translated text
             final_description = voice_result['translated_text']
             manual_correction_applied = False
             original_text = voice_result['original_text']
-            translated_text = voice_result['translated_text']
         
         # Validate description
         if not final_description or len(final_description.strip()) < 10:
