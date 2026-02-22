@@ -36,7 +36,8 @@ class CivicIntelligenceEngine:
 
             # 2. Trend Analysis
             trends = trend_analyzer.analyze(issues_24h)
-            logger.info(f"Analyzed {len(issues_24h)} issues. Top keywords: {trends.get('top_keywords')}")
+            # Avoiding logging top_keywords directly to prevent PII leakage in logs
+            logger.info(f"Analyzed {len(issues_24h)} issues.")
 
             # 3. Adaptive Weight Optimization (Severity)
             # Find manual severity upgrades in the last 24h
