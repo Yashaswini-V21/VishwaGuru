@@ -113,6 +113,8 @@ class Grievance(Base):
     audit_logs = relationship("EscalationAudit", back_populates="grievance")
     followers = relationship("GrievanceFollower", back_populates="grievance")
     closure_confirmations = relationship("ClosureConfirmation", back_populates="grievance")
+    resolution_evidence = relationship("ResolutionEvidence", back_populates="grievance")
+    resolution_tokens = relationship("ResolutionProofToken", back_populates="grievance")
 
 class SLAConfig(Base):
     __tablename__ = "sla_configs"

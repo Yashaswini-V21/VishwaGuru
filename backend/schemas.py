@@ -279,6 +279,81 @@ class BlockchainVerificationResponse(BaseModel):
     computed_hash: str = Field(..., description="Hash computed from current issue data and previous issue's hash")
     message: str = Field(..., description="Verification result message")
 
+
+# Resolution Proof Schemas (Issue #292)
+
+class GenerateRPTRequest(BaseModel):
+    grievance_id: int = Field(..., description="Grievance ID to generate token for")
+    authority_email: str = Field(..., description="Email of the authority resolving the grievance")
+    geofence_radius_meters: Optional[float] = Field(200.0, ge=50, le=1000, description="Geofence radius in meters")
+
+
+class RPTResponse(BaseModel):
+    token_id: str = Field(..., description="Unique token identifier")
+    grievance_id: int = Field(..., description="Associated grievance ID")
+    geofence_latitude: float = Field(..., description="Geofence center latitude")
+    geofence_longitude: float = Field(..., description="Geofence center longitude")
+    geofence_radius_meters: float = Field(..., description="Geofence radius in meters")
+    valid_from: datetime = Field(..., description="Token validity start time")
+    valid_until: datetime = Field(..., description="Token expiry time")
+    token_signature: str = Field(..., description="Cryptographic signature of the token")
+    message: str = Field(..., description="Status message")
+
+
+class SubmitEvidenceRequest(BaseModel):
+    token_id: str = Field(..., description="Resolution proof token ID")
+    evidence_hash: str = Field(..., min_length=64, max_length=64, description="SHA-256 hash of the evidence media file")
+    gps_latitude: float = Field(..., ge=-90, le=90, description="GPS latitude of capture location")
+    gps_longitude: float = Field(..., ge=-180, le=180, description="GPS longitude of capture location")
+    capture_timestamp: datetime = Field(..., description="Timestamp when evidence was captured")
+    device_fingerprint_hash: Optional[str] = Field(None, description="Hash of device fingerprint")
+
+
+class EvidenceResponse(BaseModel):
+    id: int = Field(..., description="Evidence record ID")
+    grievance_id: int = Field(..., description="Associated grievance ID")
+    evidence_hash: str = Field(..., description="SHA-256 hash of the evidence")
+    gps_latitude: float = Field(..., description="Capture GPS latitude")
+    gps_longitude: float = Field(..., description="Capture GPS longitude")
+    capture_timestamp: datetime = Field(..., description="When evidence was captured")
+    verification_status: str = Field(..., description="Verification status: pending, verified, flagged, fraud_detected")
+    server_signature: str = Field(..., description="Server cryptographic signature")
+    created_at: datetime = Field(..., description="Record creation timestamp")
+    message: str = Field(..., description="Status message")
+
+
+class VerificationResponse(BaseModel):
+    grievance_id: int = Field(..., description="Grievance ID")
+    is_verified: bool = Field(..., description="Whether the resolution is cryptographically verified")
+    verification_status: str = Field(..., description="Status: pending, verified, flagged, fraud_detected")
+    resolution_timestamp: Optional[datetime] = Field(None, description="When the grievance was resolved")
+    location_match: bool = Field(..., description="Whether evidence GPS matches grievance geofence")
+    evidence_integrity: bool = Field(..., description="Whether evidence hash is intact")
+    evidence_hash: Optional[str] = Field(None, description="SHA-256 hash fingerprint for transparency")
+    evidence_count: int = Field(0, description="Number of evidence records")
+    message: str = Field(..., description="Human-readable verification summary")
+
+
+class EvidenceAuditLogResponse(BaseModel):
+    id: int = Field(..., description="Audit log entry ID")
+    evidence_id: int = Field(..., description="Associated evidence ID")
+    action: str = Field(..., description="Action: created, verified, flagged, fraud_detected")
+    details: Optional[str] = Field(None, description="Additional details")
+    actor_email: Optional[str] = Field(None, description="Actor who triggered the action")
+    timestamp: datetime = Field(..., description="When the action occurred")
+
+
+class AuditTrailResponse(BaseModel):
+    grievance_id: int = Field(..., description="Grievance ID")
+    audit_entries: List[EvidenceAuditLogResponse] = Field(default_factory=list, description="Audit trail entries")
+    total_entries: int = Field(0, description="Total number of audit entries")
+
+
+class DuplicateCheckResponse(BaseModel):
+    is_duplicate: bool = Field(..., description="Whether the evidence hash is a duplicate")
+    duplicate_grievance_ids: List[int] = Field(default_factory=list, description="Grievance IDs with matching hash")
+    message: str = Field(..., description="Duplicate check result message")
+
 # Auth Schemas
 class UserBase(BaseModel):
     email: str = Field(..., description="User email")
