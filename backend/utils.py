@@ -303,3 +303,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def generate_reference_id() -> str:
+    """
+    Generate a unique reference ID for voice submissions.
+    Format: VOICE-YYYYMMDD-HHMMSS-XXXX (random suffix)
+    """
+    import random
+    import string
+    from datetime import datetime
+    
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    random_suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    return f"VOICE-{timestamp}-{random_suffix}"
