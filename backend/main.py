@@ -25,6 +25,7 @@ from backend.ai_factory import create_all_ai_services
 from backend.ai_interfaces import initialize_ai_services
 from backend.bot import start_bot_thread, stop_bot_thread
 from backend.init_db import migrate_db
+from backend.scheduler import start_scheduler
 from backend.maharashtra_locator import load_maharashtra_pincode_data, load_maharashtra_mla_data
 from backend.exceptions import EXCEPTION_HANDLERS
 from backend.routers import issues, detection, grievances, utility, auth, admin, analysis, voice, resolution_proof
@@ -95,6 +96,9 @@ async def lifespan(app: FastAPI):
     # Launch background tasks that are non-blocking for startup/health-check
     asyncio.create_task(background_initialization(app))
     
+    # Start the daily civic intelligence refinement scheduler
+    start_scheduler()
+
     yield
     
     # Shutdown: Close Shared HTTP Client
