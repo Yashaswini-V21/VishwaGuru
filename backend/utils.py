@@ -8,6 +8,8 @@ import os
 import shutil
 import logging
 import io
+import secrets
+import string
 from typing import Optional
 
 from backend.cache import user_upload_cache
