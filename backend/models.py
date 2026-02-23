@@ -268,3 +268,78 @@ class FieldOfficerVisit(Base):
     created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc))
     is_public = Column(Boolean, default=True)  # Public visibility for transparency
+
+
+class VerificationStatus(enum.Enum):
+    PENDING = "pending"
+    VERIFIED = "verified"
+    FLAGGED = "flagged"
+    FRAUD_DETECTED = "fraud_detected"
+
+
+class ResolutionProofToken(Base):
+    """
+    One-time cryptographic token for resolution proof verification.
+    """
+    __tablename__ = "resolution_proof_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token_id = Column(String, unique=True, index=True, nullable=False)
+    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=False, index=True)
+    authority_email = Column(String, nullable=False, index=True)
+    geofence_latitude = Column(Float, nullable=False)
+    geofence_longitude = Column(Float, nullable=False)
+    geofence_radius_meters = Column(Float, default=200.0)
+    valid_from = Column(DateTime, nullable=False)
+    valid_until = Column(DateTime, nullable=False)
+    nonce = Column(String, nullable=False)
+    token_signature = Column(String, nullable=False)
+    is_used = Column(Boolean, default=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+    # Relationships
+    grievance = relationship("Grievance", back_populates="resolution_tokens")
+    evidence_records = relationship("ResolutionEvidence", back_populates="token")
+
+
+class ResolutionEvidence(Base):
+    """
+    Cryptographically signed resolution evidence with geospatial proof.
+    """
+    __tablename__ = "resolution_evidence"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=False, index=True)
+    token_id = Column(Integer, ForeignKey("resolution_proof_tokens.id"), nullable=False)
+    evidence_hash = Column(String, nullable=False, index=True)
+    gps_latitude = Column(Float, nullable=False)
+    gps_longitude = Column(Float, nullable=False)
+    capture_timestamp = Column(DateTime, nullable=False)
+    device_fingerprint_hash = Column(String, nullable=True)
+    metadata_bundle = Column(JSONEncodedDict, nullable=True)
+    server_signature = Column(String, nullable=False)
+    verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+    # Relationships
+    grievance = relationship("Grievance", back_populates="resolution_evidence")
+    token = relationship("ResolutionProofToken", back_populates="evidence_records")
+    audit_logs = relationship("EvidenceAuditLog", back_populates="evidence")
+
+
+class EvidenceAuditLog(Base):
+    """
+    Append-only audit log for resolution evidence actions.
+    """
+    __tablename__ = "evidence_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evidence_id = Column(Integer, ForeignKey("resolution_evidence.id"), nullable=False, index=True)
+    action = Column(String, nullable=False)
+    details = Column(Text, nullable=True)
+    actor_email = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+    # Relationships
+    evidence = relationship("ResolutionEvidence", back_populates="audit_logs")
