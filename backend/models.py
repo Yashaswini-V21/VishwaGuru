@@ -213,6 +213,63 @@ class ClosureConfirmation(Base):
     grievance = relationship("Grievance", back_populates="closure_confirmations")
 
 
+class FieldOfficerVisit(Base):
+    """
+    Field Officer Check-In System (Issue #288)
+    Tracks government officer visits to grievance sites with GPS verification
+    """
+    __tablename__ = "field_officer_visits"
+    __table_args__ = (
+        Index("ix_visits_issue_timestamp", "issue_id", "check_in_time"),
+        Index("ix_visits_officer_timestamp", "officer_email", "check_in_time"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Reference to issue/grievance
+    issue_id = Column(Integer, ForeignKey("issues.id"), nullable=False, index=True)
+    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=True, index=True)
+    
+    # Officer details
+    officer_email = Column(String, nullable=False, index=True)
+    officer_name = Column(String, nullable=False)
+    officer_department = Column(String, nullable=True)
+    officer_designation = Column(String, nullable=True)
+    
+    # Check-in location data
+    check_in_latitude = Column(Float, nullable=False)
+    check_in_longitude = Column(Float, nullable=False)
+    check_in_time = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False, index=True)
+    
+    # Geo-fencing verification
+    distance_from_site = Column(Float, nullable=True)  # Distance in meters from reported issue location
+    within_geofence = Column(Boolean, default=False, nullable=False)  # True if within acceptable radius
+    geofence_radius_meters = Column(Float, default=100.0)  # Acceptable radius in meters
+    
+    # Visit details
+    visit_notes = Column(Text, nullable=True)  # Officer's notes about the visit
+    visit_images = Column(JSONEncodedDict, nullable=True)  # Paths to uploaded images
+    visit_duration_minutes = Column(Integer, nullable=True)  # Estimated duration of visit
+    
+    # Check-out (optional)
+    check_out_time = Column(DateTime, nullable=True)
+    check_out_latitude = Column(Float, nullable=True)
+    check_out_longitude = Column(Float, nullable=True)
+    
+    # Status and verification
+    status = Column(String, default="checked_in", nullable=False)  # 'checked_in', 'checked_out', 'verified', 'disputed'
+    verified_by = Column(String, nullable=True)  # Admin/supervisor who verified
+    verified_at = Column(DateTime, nullable=True)
+    
+    # Immutability hash (blockchain-like integrity)
+    visit_hash = Column(String, nullable=True)  # Hash of visit data for integrity verification
+    
+    # Metadata
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc))
+    is_public = Column(Boolean, default=True)  # Public visibility for transparency
+
+
 class VerificationStatus(enum.Enum):
     PENDING = "pending"
     VERIFIED = "verified"
@@ -221,16 +278,18 @@ class VerificationStatus(enum.Enum):
 
 
 class ResolutionProofToken(Base):
-    """One-time Resolution Proof Token for geo-temporal evidence capture."""
+    """
+    One-time cryptographic token for resolution proof verification.
+    """
     __tablename__ = "resolution_proof_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
-    token_id = Column(String, unique=True, index=True, nullable=False)  # UUID
-    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=False)
+    token_id = Column(String, unique=True, index=True, nullable=False)
+    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=False, index=True)
     authority_email = Column(String, nullable=False, index=True)
     geofence_latitude = Column(Float, nullable=False)
     geofence_longitude = Column(Float, nullable=False)
-    geofence_radius_meters = Column(Float, nullable=False, default=200.0)
+    geofence_radius_meters = Column(Float, default=200.0)
     valid_from = Column(DateTime, nullable=False)
     valid_until = Column(DateTime, nullable=False)
     nonce = Column(String, nullable=False)
@@ -239,49 +298,48 @@ class ResolutionProofToken(Base):
     used_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
-    # Relationship
+    # Relationships
     grievance = relationship("Grievance", back_populates="resolution_tokens")
-    evidence = relationship("ResolutionEvidence", back_populates="token")
+    evidence_records = relationship("ResolutionEvidence", back_populates="token")
 
 
 class ResolutionEvidence(Base):
-    """Immutable evidence record with cryptographic hash and geo-temporal metadata."""
+    """
+    Cryptographically signed resolution evidence with geospatial proof.
+    """
     __tablename__ = "resolution_evidence"
-    __table_args__ = (
-        Index("ix_evidence_hash", "evidence_hash"),
-        Index("ix_evidence_grievance", "grievance_id"),
-    )
 
     id = Column(Integer, primary_key=True, index=True)
-    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=False)
+    grievance_id = Column(Integer, ForeignKey("grievances.id"), nullable=False, index=True)
     token_id = Column(Integer, ForeignKey("resolution_proof_tokens.id"), nullable=False)
-    evidence_hash = Column(String, nullable=False)  # SHA-256 of media file
+    evidence_hash = Column(String, nullable=False, index=True)
     gps_latitude = Column(Float, nullable=False)
     gps_longitude = Column(Float, nullable=False)
     capture_timestamp = Column(DateTime, nullable=False)
     device_fingerprint_hash = Column(String, nullable=True)
-    metadata_bundle = Column(JSONEncodedDict, nullable=True)  # JSON bundle of all metadata
-    server_signature = Column(String, nullable=False)  # Server-side signature of the bundle
+    metadata_bundle = Column(JSONEncodedDict, nullable=True)
+    server_signature = Column(String, nullable=False)
     verification_status = Column(Enum(VerificationStatus), default=VerificationStatus.PENDING, index=True)
-    media_storage_path = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     # Relationships
     grievance = relationship("Grievance", back_populates="resolution_evidence")
-    token = relationship("ResolutionProofToken", back_populates="evidence")
+    token = relationship("ResolutionProofToken", back_populates="evidence_records")
     audit_logs = relationship("EvidenceAuditLog", back_populates="evidence")
 
 
 class EvidenceAuditLog(Base):
-    """Append-only audit log for evidence lifecycle tracking."""
+    """
+    Append-only audit log for resolution evidence actions.
+    """
     __tablename__ = "evidence_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    evidence_id = Column(Integer, ForeignKey("resolution_evidence.id"), nullable=False)
-    action = Column(String, nullable=False)  # 'created', 'verified', 'flagged', 'fraud_detected'
+    evidence_id = Column(Integer, ForeignKey("resolution_evidence.id"), nullable=False, index=True)
+    action = Column(String, nullable=False)
     details = Column(Text, nullable=True)
-    actor_email = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), index=True)
+    actor_email = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
-    # Relationship
+    # Relationships
     evidence = relationship("ResolutionEvidence", back_populates="audit_logs")

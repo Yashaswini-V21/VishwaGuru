@@ -160,6 +160,28 @@ def migrate_db():
                 if not index_exists("grievances", "ix_grievances_category_status"):
                     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_grievances_category_status ON grievances (category, status)"))
 
+            # Field Officer Visits Table (Issue #288)
+            # This table is newly created for field officer check-in system
+            if not inspector.has_table("field_officer_visits"):
+                logger.info("Creating field_officer_visits table...")
+                # Use conn.execute to stay within the transaction
+                Base.metadata.tables['field_officer_visits'].create(bind=conn)
+                logger.info("Created field_officer_visits table")
+            
+            # Indexes for field_officer_visits (run regardless of table creation)
+            if inspector.has_table("field_officer_visits"):
+                if not index_exists("field_officer_visits", "ix_field_officer_visits_issue_id"):
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_officer_visits_issue_id ON field_officer_visits (issue_id)"))
+                
+                if not index_exists("field_officer_visits", "ix_field_officer_visits_officer_email"):
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_officer_visits_officer_email ON field_officer_visits (officer_email)"))
+                
+                if not index_exists("field_officer_visits", "ix_field_officer_visits_status"):
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_officer_visits_status ON field_officer_visits (status)"))
+                
+                if not index_exists("field_officer_visits", "ix_field_officer_visits_check_in_time"):
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_field_officer_visits_check_in_time ON field_officer_visits (check_in_time)"))
+
             logger.info("Database migration check completed successfully.")
 
     except Exception as e:
